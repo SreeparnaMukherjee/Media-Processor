@@ -20,7 +20,7 @@ app.add_middleware(
 )
 
 # ✅ Temp directory
-TEMP_DIR = "temp"
+TEMP_DIR = "/tmp"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 
