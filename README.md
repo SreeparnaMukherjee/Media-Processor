@@ -35,20 +35,20 @@ Media Processing (FFmpeg via subprocess)
 ## Setup Instructions (Local)
 
 1. Clone Repository:
-git clone https://github.com/YOUR_USERNAME/media-processor-app.git
-cd media-processor-app
+-git clone https://github.com/YOUR_USERNAME/media-processor-app.git
+-cd media-processor-app
 
 2. Backend Setup:
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn app:app --reload
+-cd backend
+-python3 -m venv venv
+-source venv/bin/activate
+-pip install -r requirements.txt
+-uvicorn app:app --reload
 
 3. Frontend Setup:
-cd frontend
-npm install
-npm start
+-cd frontend
+-npm install
+-npm start
 
 Sample Input:
 https://download.samplelib.com/mp4/sample-5s.mp4
