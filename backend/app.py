@@ -1,16 +1,16 @@
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+
 import requests
 import os
 import subprocess
 import uuid
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# ✅ CORS
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,84 +19,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ Temp directory
+# Temp directory (Render-safe)
 TEMP_DIR = "/tmp"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 
+# Request model
 class RequestModel(BaseModel):
     url: str
     operation: str
 
 
-def generate_filename(ext):
-    return os.path.join(TEMP_DIR, f"{uuid.uuid4()}.{ext}")
+# Generate unique filename
+def generate_filename(extension):
+    return os.path.join(TEMP_DIR, f"{uuid.uuid4()}.{extension}")
 
 
-# ✅ STRONG DOWNLOAD FIX
+# Download media
 def download_file(url):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers, stream=True, timeout=30)
+    local_filename = generate_filename("mp4")
 
-    if response.status_code != 200:
-        raise Exception("Failed to download file")
+    with requests.get(url, stream=True) as r:
+        if r.status_code != 200:
+            raise Exception("Failed to download file")
 
-    file_path = generate_filename("mp4")
+        with open(local_filename, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
 
-    with open(file_path, "wb") as f:
-        for chunk in response.iter_content(1024 * 1024):
-            if chunk:
-                f.write(chunk)
-
-    size = os.path.getsize(file_path)
-    print("Downloaded:", file_path, "Size:", size)
-
-    if size < 100000:  # <100KB means broken download
-        raise Exception("Downloaded file is too small / corrupted")
-
-    return file_path
+    print(f"Downloaded: {local_filename} Size: {os.path.getsize(local_filename)}")
+    return local_filename
 
 
-# ✅ SAFE FFMPEG RUN
-def run_ffmpeg(command):
-    print("Running:", " ".join(command))
-
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
-    )
-
-    stdout, stderr = process.communicate()
-
-    if process.returncode != 0:
-        print(stderr.decode())
-        raise Exception("FFmpeg failed")
-
-@app.get("/media/{filename}")
-def get_media(filename: str):
-    file_path = os.path.join(TEMP_DIR, filename)
-
-    if not os.path.exists(file_path):
-        return {"error": "File not found"}
-
-    return FileResponse(
-        path=file_path,
-        media_type="application/octet-stream",
-        filename=filename
-    )
-
+# Main API
 @app.post("/process")
 def process_media(req: RequestModel):
     try:
         input_file = download_file(req.url)
 
-        # ----------------------------
-        # THUMBNAIL
-        # ----------------------------
+        # Choose operation
         if req.operation == "thumbnail":
             output_file = generate_filename("jpg")
-
             command = [
                 "ffmpeg",
                 "-y",
@@ -106,34 +70,23 @@ def process_media(req: RequestModel):
                 output_file
             ]
 
-        # ----------------------------
-        # VIDEO COMPRESS (STRICT FIX)
-        # ----------------------------
         elif req.operation == "compress":
             output_file = generate_filename("mp4")
-
             command = [
                 "ffmpeg",
                 "-y",
                 "-i", input_file,
-                "-c:v", "libx264",
-                "-profile:v", "baseline",
-                "-level", "3.0",
-                "-pix_fmt", "yuv420p",
-                "-preset", "medium",
-                "-crf", "23",
-                "-c:a", "aac",
-                "-b:a", "128k",
+                "-vcodec", "libx264",
+                "-crf", "28",
+                "-preset", "fast",
                 "-movflags", "+faststart",
+                "-acodec", "aac",
+                "-b:a", "128k",
                 output_file
             ]
 
-        # ----------------------------
-        # AUDIO EXTRACT (STRICT FIX)
-        # ----------------------------
         elif req.operation == "extract_audio":
             output_file = generate_filename("mp3")
-
             command = [
                 "ffmpeg",
                 "-y",
@@ -141,31 +94,47 @@ def process_media(req: RequestModel):
                 "-vn",
                 "-acodec", "libmp3lame",
                 "-ab", "192k",
-                "-ar", "44100",
-                "-f", "mp3",
                 output_file
             ]
 
         else:
             return {"status": "error", "message": "Invalid operation"}
 
-        # Run FFmpeg
-        run_ffmpeg(command)
+        print("Running:", " ".join(command))
 
-        # Validate output
-        size = os.path.getsize(output_file)
-        print("Output:", output_file, "Size:", size)
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=120
+        )
 
-        if size < 1000:
-            raise Exception("Output file corrupted")
+        if result.returncode != 0:
+            error_msg = result.stderr.decode()
+            print("FFmpeg Error:", error_msg)
+            return {
+                "status": "error",
+                "message": error_msg
+            }
 
-        return {
-            "status": "success",
-            "output": os.path.basename(output_file)
-        }
+        print(f"Output: {output_file} Size: {os.path.getsize(output_file)}")
+
+        # RETURN FILE DIRECTLY (CRITICAL FIX)
+        return FileResponse(
+            path=output_file,
+            media_type="application/octet-stream",
+            filename=os.path.basename(output_file)
+        )
 
     except Exception as e:
+        print("Error:", str(e))
         return {
             "status": "error",
             "message": str(e)
         }
+
+
+# Root check
+@app.get("/")
+def home():
+    return {"message": "Media Processor API is running"}
