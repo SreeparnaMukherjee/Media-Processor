@@ -1,6 +1,7 @@
 # Media Processor App (Full Stack)
 
 A full-stack web application that allows users to process media files directly from a URL using powerful FFmpeg operations.
+
 The system allows users to input a media URL and perform operations such as thumbnail extraction, video compression, and audio extraction using FFmpeg via Python subprocess.
 The backend handles downloading, processing, and returning media efficiently, while the frontend provides an interactive UI with real-time feedback.
 Real-world deployment challenges such as cross-origin requests, stateless server behavior, and media streaming by implementing direct file responses and blob handling on the frontend are addressed.
